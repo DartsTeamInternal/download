@@ -19,6 +19,10 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @SpringBootApplication
@@ -26,44 +30,48 @@ public class DownloadApplication {
     private static final Logger logger = LogManager.getLogger(DownloadApplication.class);
 
     static String destination = "/home/dartsapp/temp/";
-    //static String destination = "/home/dartsapp/temp/cwee_instance_2/";
-    //static String destination = "/home/dartsapp/temp/cwee_3/";
+    static String path = "C:\\darts-projects-setups\\download\\src\\main\\resources\\dove-issues.csv";
 
 
     public static void main(String[] args) {
         SpringApplication.run(DownloadApplication.class, args);
+        Map<String, List<String>> stringStringMap = readCSV(path);
+        System.out.println(stringStringMap);
+    }
 
-        try (Reader reader = Files.newBufferedReader(Paths.get("cwee_inputcsv.csv"));
-        //try (Reader reader = Files.newBufferedReader(Paths.get("cwee_inputcsv_2.csv"));
-        //try (Reader reader = Files.newBufferedReader(Paths.get("cwee_3.csv"));
+    public static Map<String,List<String>> readCSV(String path) {
+        Map<String,List<String>> dove = new LinkedHashMap<>();
+        try (Reader reader = Files.newBufferedReader(Paths.get(path));
              CSVParser csvParser = new CSVParser(reader, CSVFormat.DEFAULT.withFirstRecordAsHeader())) {
-            ProcessBuilder processBuilder = new ProcessBuilder();
             for (CSVRecord csvRecord : csvParser) {
                 String name = csvRecord.get("name");
                 String archive_location = csvRecord.get("archive_location");
                 logger.info("Name: " + name);
                 logger.info("Archive_location: " + archive_location);
-
-                if (Files.isDirectory(Paths.get(archive_location))) {
-                    Instant zipStart = Instant.now();
-                    logger.info("----Directory Exist, start zipping---");
-                    String zipFilePath = destination + name + ".zip";
-                    ZipUtil.pack(new File(archive_location), new File(zipFilePath));
-                    Instant uploadStart = Instant.now();
-                    logger.info("----start uploading---");
-                    uploadObjectUsingCLI(new File(zipFilePath), processBuilder);
-                    appendOutputFile(name);
-
-                    //Instant uploadEnd = Instant.now();
-                    logger.info("Time taken to zip: "+ Duration.between(zipStart, uploadStart) +" milliseconds");
-                    //logger.info("Time taken to upload: "+ Duration.between(uploadStart, uploadEnd) +" milliseconds");
-                } else {
-                    logger.info("***Not found, Hence ignoring this path****");
-                }
+                dove.put(name,checkPath(archive_location));
             }
         } catch (IOException ex){
             ex.printStackTrace();
         }
+        return dove;
+    }
+
+    public static List<String> checkPath(String cs) {
+        List<String> list = new ArrayList<>();
+        File file = new File(cs);
+        if (file.exists()) {
+            if (file.isDirectory()) {
+                File[] listFiles = file.listFiles();
+                if (listFiles !=null) {
+                    for (File f:listFiles) {
+                        if (f.isDirectory()) {
+                            list.add(f.getName());
+                        }
+                    }
+                }
+            }
+        }
+        return list;
     }
 
     private static void appendOutputFile(String name) {
@@ -75,68 +83,5 @@ public class DownloadApplication {
             e.printStackTrace();
         }
     }
-
-    //upload using AWS CLI, its is comparatively faster
-    private static void uploadObjectUsingCLI(File file, ProcessBuilder processBuilder) {
-        logger.info("----uploadObjectUsingCLI start---");
-        String bucketName = "coherent-commons-digital-assets-source";
-        String bucketFullPath = bucketName+"/CWEE/"; //folder for CWEE
-        String nameOfFileToStore = file.getName();
-        try {
-            // Get an object and print its contents.
-            StringBuilder com = new StringBuilder();
-            com.append("aws s3 mv ");
-            com.append(nameOfFileToStore);
-            com.append(" s3://");
-            com.append(bucketFullPath);
-
-            logger.info("---AWS cli:: "+com);
-            processBuilder.command("bash", "-c", String.valueOf(com));
-            Process proStart = processBuilder.start();
-
-            stopProcessOnCompletion(proStart);
-
-            logger.info("---uploadObjectUsingCLI completed");
-        } catch (SdkClientException | IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private static void stopProcessOnCompletion(Process process) {
-        logger.info("---stopProcessOnCompletion");
-        try {
-            process.waitFor(1, TimeUnit.MINUTES);
-            logger.info("---waitFor 1 minutes");
-            process.destroy();
-            logger.info("---destroy called");
-            process.waitFor();
-            logger.info("---process destroyed");
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-    }
-
-    //upload using AWS SDK, its is comparatively slower than AWS CLI
-    /*private static File uploadObject(File file) {
-        logger.info("----uploadObject method called---");
-        Regions clientRegion = Regions.US_EAST_2;
-        String bucketName = "coherent-commons-digital-assets-source";
-        String nameOfFileToStore = file.getName();
-        try {
-            AmazonS3 s3client = AmazonS3ClientBuilder
-                    .standard()
-                    .withRegion(clientRegion)
-                    .withCredentials(new DefaultAWSCredentialsProviderChain())
-                    .build();
-            logger.info("----AmazonS3ClientBuilder build---");
-            s3client.putObject(new PutObjectRequest(bucketName, nameOfFileToStore, file)
-                    .withCannedAcl(CannedAccessControlList.BucketOwnerFullControl));
-
-        } catch (SdkClientException e) {
-            logger.info("----SdkClientException---");
-            e.printStackTrace();
-        }
-        return file;
-    }*/
 }
 
